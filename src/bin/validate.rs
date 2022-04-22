@@ -12,7 +12,11 @@ struct Opts {
     /// schema file to test against
     #[clap(short)]
     schema: String,
+    /// All of the files to validate
     files: Vec<String>,
+    /// Only print errors
+    #[clap(long)]
+    only_errors: bool
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -29,7 +33,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("  {} at {}", error, error.instance_path);
             }
         } else {
-            println!("PASS: {file}");
+            if ! opts.only_errors {
+                println!("PASS: {file}");
+            }
         };
     });
 
