@@ -1,9 +1,15 @@
-use jsonschema::{Draft, JSONSchema};
+use jsonschema::{Draft, JSONSchema, ErrorIterator};
 use serde_json::Value as Json;
 
 #[derive(Debug)]
 pub struct Schema {
     json_schema: JSONSchema,
+}
+
+impl <J: Into<Json>> From<J> for Schema {
+    fn from(json: J) -> Self {
+        Schema::new(json.into())
+    }
 }
 
 impl Schema {
@@ -21,32 +27,55 @@ impl Schema {
     pub fn is_valid(&self, data: &Json) -> bool {
         self.json_schema.is_valid(data)
     }
+
+    pub fn validate<'a>(&'a self, data: &'a Json) -> Result<(), ErrorIterator<'a>> {
+        self.json_schema.validate(data)
+    }
 }
 
 fn enforce_properties_defined(data: &mut Json) {
     let mut empty = serde_json::Map::new();
+    let mut none = Json::Null;
 
-    if data["type"].as_str().unwrap_or_default() == "object" {
-        data["additionalProperties"] = Json::Bool(false);
+    let obj = match data.as_object_mut() {
+        None => return,
+        Some(map) => map,
+    };
 
-        data["required"] = Json::Array(
-            data["properties"]
-            .as_object()
-            .unwrap_or(&empty)
-            .keys()
-            .cloned()
-            .map(Json::String)
-            .collect()
-        );
+    match obj.get("type") {
+        Some(Json::String(t)) if t == "object" => {
+            obj.insert("additionalProperties".to_owned(), Json::Bool(false));
 
-        data["properties"]
-            .as_object_mut()
-            .unwrap_or(&mut empty)
-            .values_mut()
-            .for_each(enforce_properties_defined);
+            obj.insert(
+                "required".to_owned(),
+                Json::Array(
+                    obj.get("properties")
+                        .unwrap_or(&none)
+                        .as_object()
+                        .unwrap_or(&empty)
+                        .keys()
+                        .cloned()
+                        .map(Json::String)
+                        .collect(),
+                ),
+            );
+
+            obj.get_mut("properties")
+                .unwrap_or(&mut none)
+                .as_object_mut()
+                .unwrap_or(&mut empty)
+                .values_mut()
+                .for_each(enforce_properties_defined);
+        }
+        Some(Json::String(t)) if t == "array" => {
+            if let Some(data) = obj.get_mut("items") {
+                enforce_properties_defined(data);
+            }
+        }
+        _ => (),
     }
 
-    if data["type"].as_str().unwrap_or_default() == "array" {
-        enforce_properties_defined(&mut data["items"]);
+    if let Some(Json::Array(types)) = obj.get_mut("oneOf") {
+        types.iter_mut().for_each(enforce_properties_defined);
     }
 }
