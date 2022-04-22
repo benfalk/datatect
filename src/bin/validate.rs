@@ -4,6 +4,7 @@ use clap::Parser;
 use datatect::*;
 use serde_json::Value as Json;
 use std::fs::read_to_string;
+use rayon::prelude::*;
 
 /// Simple Schema Validation
 #[derive(Parser, Debug)]
@@ -18,19 +19,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let opts = Opts::parse();
     let schema: Schema = serde_yaml::from_str::<Json>(&read_to_string(&opts.schema)?)?.into();
 
-    for file in &opts.files {
-        let data = serde_json::from_str(&read_to_string(file)?)?;
+    opts.files.par_iter().for_each(|file|{
+        let file_data = read_to_string(file).unwrap();
+        let json_data = serde_json::from_str(&file_data).unwrap();
 
-        if let Err(errors) = schema.validate(&data) {
-            println!("ERROR: {file}");
+        if let Err(errors) = schema.validate(&json_data) {
+            println!("FAIL: {file}");
             for error in errors {
                 println!("  {} at {}", error, error.instance_path);
             }
-        }
-        else {
-            println!("PASSED: {file}");
+        } else {
+            println!("PASS: {file}");
         };
-    }
+    });
 
     Ok(())
 }
